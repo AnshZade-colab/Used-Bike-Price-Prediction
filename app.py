@@ -122,4 +122,3 @@ with st.expander("Preview dataset"):
         file_name="used_bike_dataset.csv",
         mime="text/csv"
     )
-
