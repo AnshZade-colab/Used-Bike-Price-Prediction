@@ -14,13 +14,15 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 st.set_page_config(
-    page_title="Used Bike Price Prediction",
+    page_title="Used Bike Price Analysis and Prediction",
     page_icon="🏍️",
     layout="wide"
 )
 
 st.title("🏍️ Used Bike Price Analysis and Prediction")
-st.write("Upload a dataset and predict used bike prices using Machine Learning.")
+st.write(
+    "Analyze used bike data and predict estimated resale prices using Machine Learning."
+)
 
 DEFAULT_DATA_URL = "https://raw.githubusercontent.com/KrutinBhat/Used-Bike-Prices-Analysis/main/bikes.csv"
 
@@ -36,6 +38,7 @@ PREFERRED_FEATURES = [
 
 
 def clean_dataset(raw):
+
     data = raw.copy()
 
     data.columns = (
@@ -83,13 +86,18 @@ def clean_dataset(raw):
         "power",
         "price"
     ]:
+
         if col in data.columns:
+
             data[col] = pd.to_numeric(
                 data[col].astype(str)
                 .str.replace(",", "", regex=False)
                 .str.extract(r"([-+]?\d*\.?\d+)")[0],
                 errors="coerce"
             )
+
+    if "model_year" in data.columns:
+        data["model_year"] = data["model_year"].round()
 
     data = data.replace(
         [np.inf, -np.inf], np.nan
@@ -109,6 +117,7 @@ def clean_dataset(raw):
 
 @st.cache_data(show_spinner=False)
 def load_default_data():
+
     response = requests.get(
         DEFAULT_DATA_URL,
         timeout=30
@@ -124,7 +133,7 @@ def load_default_data():
 
 
 @st.cache_resource(show_spinner=False)
-def fit_model(data):
+def train_model(data):
 
     features = [
         col for col in PREFERRED_FEATURES
@@ -132,6 +141,7 @@ def fit_model(data):
     ]
 
     if not features:
+
         features = [
             col for col in data.columns
             if col != "price"
@@ -161,26 +171,24 @@ def fit_model(data):
     transformers = []
 
     if numerical:
+
+        numerical_pipeline = make_pipeline(
+            SimpleImputer(strategy="median")
+        )
+
         transformers.append(
-            (
-                "num",
-                make_pipeline(
-                    SimpleImputer(strategy="median")
-                ),
-                numerical
-            )
+            ("num", numerical_pipeline, numerical)
         )
 
     if categorical:
+
+        categorical_pipeline = make_pipeline(
+            SimpleImputer(strategy="most_frequent"),
+            OneHotEncoder(handle_unknown="ignore")
+        )
+
         transformers.append(
-            (
-                "cat",
-                make_pipeline(
-                    SimpleImputer(strategy="most_frequent"),
-                    OneHotEncoder(handle_unknown="ignore")
-                ),
-                categorical
-            )
+            ("cat", categorical_pipeline, categorical)
         )
 
     preprocessing = ColumnTransformer(
@@ -212,9 +220,7 @@ def fit_model(data):
             y_test, predictions
         ),
         "RMSE": np.sqrt(
-            mean_squared_error(
-                y_test, predictions
-            )
+            mean_squared_error(y_test, predictions)
         ),
         "R2": r2_score(
             y_test, predictions
@@ -230,6 +236,8 @@ def fit_model(data):
     )
 
 
+# DATASET UPLOAD
+
 st.sidebar.header("Dataset Upload")
 
 uploaded_file = st.sidebar.file_uploader(
@@ -240,6 +248,7 @@ uploaded_file = st.sidebar.file_uploader(
 if uploaded_file is not None:
 
     try:
+
         data = clean_dataset(
             pd.read_csv(uploaded_file)
         )
@@ -262,9 +271,8 @@ else:
 
     try:
 
-        with st.spinner(
-            "Loading sample dataset..."
-        ):
+        with st.spinner("Loading sample dataset..."):
+
             data = load_default_data()
 
         dataset_name = "Sample Dataset"
@@ -280,11 +288,13 @@ else:
         )
 
         st.info(
-            "Please upload a CSV dataset from the sidebar."
+            "Please upload a valid CSV dataset using the sidebar."
         )
 
         st.stop()
 
+
+# MODEL TRAINING
 
 try:
 
@@ -294,7 +304,7 @@ try:
         categorical,
         model,
         metrics
-    ) = fit_model(data)
+    ) = train_model(data)
 
 except Exception as e:
 
@@ -306,6 +316,8 @@ except Exception as e:
 
 
 st.divider()
+
+# DATASET OVERVIEW
 
 st.subheader("Dataset Overview")
 
@@ -328,151 +340,177 @@ c3.metric(
 
 st.divider()
 
-st.subheader("Bike Details")
+# BIKE INPUT FORM
+
+st.subheader("Enter Bike Details")
 
 st.write(
-    "Change the values below to automatically update the estimated bike price."
+    "Select the bike details and click Predict Bike Price."
 )
 
 input_values = {}
 
-left, right = st.columns(2)
+with st.form("bike_prediction_form"):
 
-for index, col in enumerate(features):
+    left, right = st.columns(2)
 
-    container = (
-        left if index % 2 == 0 else right
+    for index, col in enumerate(features):
+
+        container = (
+            left if index % 2 == 0 else right
+        )
+
+        label = col.replace(
+            "_", " "
+        ).title()
+
+        with container:
+
+            if col in numerical:
+
+                series = pd.to_numeric(
+                    data[col],
+                    errors="coerce"
+                ).dropna()
+
+                if col == "model_year":
+
+                    default = (
+                        int(round(series.median()))
+                        if not series.empty else 2020
+                    )
+
+                    minimum = (
+                        int(np.floor(series.min()))
+                        if not series.empty else 1980
+                    )
+
+                    maximum = (
+                        int(np.ceil(series.max()))
+                        if not series.empty else 2026
+                    )
+
+                    if minimum == maximum:
+                        maximum = minimum + 1
+
+                    input_values[col] = st.number_input(
+                        label,
+                        min_value=minimum,
+                        max_value=maximum,
+                        value=min(
+                            max(default, minimum),
+                            maximum
+                        ),
+                        step=1,
+                        format="%d",
+                        key=f"input_{col}"
+                    )
+
+                else:
+
+                    default = (
+                        float(series.median())
+                        if not series.empty else 0.0
+                    )
+
+                    minimum = (
+                        float(series.min())
+                        if not series.empty else 0.0
+                    )
+
+                    maximum = (
+                        float(series.max())
+                        if not series.empty
+                        else max(default * 2, 1.0)
+                    )
+
+                    if minimum == maximum:
+                        maximum = minimum + 1.0
+
+                    input_values[col] = st.number_input(
+                        label,
+                        min_value=minimum,
+                        max_value=maximum,
+                        value=min(
+                            max(default, minimum),
+                            maximum
+                        ),
+                        key=f"input_{col}"
+                    )
+
+            else:
+
+                options = sorted(
+                    data[col]
+                    .dropna()
+                    .astype(str)
+                    .unique()
+                    .tolist()
+                )
+
+                if options:
+
+                    input_values[col] = st.selectbox(
+                        label,
+                        options,
+                        key=f"input_{col}"
+                    )
+
+                else:
+
+                    input_values[col] = st.text_input(
+                        label,
+                        key=f"input_{col}"
+                    )
+
+    predict_button = st.form_submit_button(
+        "Predict Bike Price",
+        type="primary",
+        use_container_width=True
     )
 
-    label = col.replace(
-        "_", " "
-    ).title()
 
-    with container:
+# PREDICTION
 
-        if col in numerical:
+if predict_button:
 
-            series = pd.to_numeric(
-                data[col],
-                errors="coerce"
-            ).dropna()
+    input_data = pd.DataFrame(
+        [input_values],
+        columns=features
+    )
 
-            if col == "model_year":
+    for col in categorical:
+        input_data[col] = input_data[col].astype(str)
 
-                default = (
-                    int(round(series.median()))
-                    if not series.empty else 2020
-                )
+    predicted_price = float(
+        model.predict(input_data)[0]
+    )
 
-                minimum = (
-                    int(np.floor(series.min()))
-                    if not series.empty else 1980
-                )
+    st.session_state["predicted_price"] = predicted_price
 
-                maximum = (
-                    int(np.ceil(series.max()))
-                    if not series.empty else 2026
-                )
-
-                if minimum == maximum:
-                    maximum = minimum + 1
-
-                input_values[col] = st.number_input(
-                    label,
-                    min_value=minimum,
-                    max_value=maximum,
-                    value=min(
-                        max(default, minimum),
-                        maximum
-                    ),
-                    step=1,
-                    format="%d",
-                    key=f"input_{col}"
-                )
-
-            else:
-
-                default = (
-                    float(series.median())
-                    if not series.empty else 0.0
-                )
-
-                minimum = (
-                    float(series.min())
-                    if not series.empty else 0.0
-                )
-
-                maximum = (
-                    float(series.max())
-                    if not series.empty
-                    else max(default * 2, 1.0)
-                )
-
-                if minimum == maximum:
-                    maximum = minimum + 1.0
-
-                input_values[col] = st.number_input(
-                    label,
-                    min_value=minimum,
-                    max_value=maximum,
-                    value=min(
-                        max(default, minimum),
-                        maximum
-                    ),
-                    key=f"input_{col}"
-                )
-
-        else:
-
-            options = sorted(
-                data[col]
-                .dropna()
-                .astype(str)
-                .unique()
-                .tolist()
-            )
-
-            if options:
-
-                input_values[col] = st.selectbox(
-                    label,
-                    options,
-                    key=f"input_{col}"
-                )
-
-            else:
-
-                input_values[col] = st.text_input(
-                    label,
-                    key=f"input_{col}"
-                )
+    st.session_state["prediction_dataset"] = dataset_name
 
 
-input_data = pd.DataFrame(
-    [input_values],
-    columns=features
-)
+if (
+    "predicted_price" in st.session_state
+    and st.session_state.get("prediction_dataset") == dataset_name
+):
 
-for col in categorical:
-    input_data[col] = input_data[col].astype(str)
+    st.divider()
+
+    st.subheader("Prediction Result")
+
+    st.success(
+        f"Estimated Bike Price: ₹{st.session_state['predicted_price']:,.0f}"
+    )
+
+    st.caption(
+        "This estimate is based on historical listings "
+        "and may not represent the current market price."
+    )
 
 
-predicted_price = float(
-    model.predict(input_data)[0]
-)
-
-st.divider()
-
-st.subheader("Predicted Bike Price")
-
-st.success(
-    f"Estimated Bike Price: ₹{predicted_price:,.0f}"
-)
-
-st.caption(
-    "This estimate is based on historical listings "
-    "and may not represent the current market price."
-)
+# MODEL EVALUATION
 
 st.divider()
 
@@ -496,9 +534,12 @@ m3.metric(
 )
 
 st.caption(
-    "Metrics are calculated on a separate test dataset "
-    "using an 80:20 train-test split."
+    "Performance metrics are calculated using an "
+    "80:20 train-test split."
 )
+
+
+# DATASET PREVIEW
 
 st.divider()
 
@@ -519,6 +560,7 @@ with st.expander("View Dataset"):
         file_name="used_bike_dataset.csv",
         mime="text/csv"
     )
+
 
 st.divider()
 
