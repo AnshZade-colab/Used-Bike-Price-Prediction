@@ -14,13 +14,13 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 st.set_page_config(
-    page_title="Used Bike Price Analysis and Prediction",
+    page_title="Used Bike Price Prediction",
     page_icon="🏍️",
     layout="wide"
 )
 
 st.title("🏍️ Used Bike Price Analysis and Prediction")
-st.write("Analyze used bike data and predict estimated resale prices.")
+st.write("Upload a dataset and predict used bike prices using Machine Learning.")
 
 DEFAULT_DATA_URL = "https://raw.githubusercontent.com/KrutinBhat/Used-Bike-Prices-Analysis/main/bikes.csv"
 
@@ -107,6 +107,7 @@ def clean_dataset(raw):
     return data
 
 
+@st.cache_data(show_spinner=False)
 def load_default_data():
     response = requests.get(
         DEFAULT_DATA_URL,
@@ -122,7 +123,8 @@ def load_default_data():
     return clean_dataset(raw)
 
 
-def train_model(data):
+@st.cache_resource(show_spinner=False)
+def fit_model(data):
 
     features = [
         col for col in PREFERRED_FEATURES
@@ -159,22 +161,26 @@ def train_model(data):
     transformers = []
 
     if numerical:
-        numerical_pipeline = make_pipeline(
-            SimpleImputer(strategy="median")
-        )
-
         transformers.append(
-            ("num", numerical_pipeline, numerical)
+            (
+                "num",
+                make_pipeline(
+                    SimpleImputer(strategy="median")
+                ),
+                numerical
+            )
         )
 
     if categorical:
-        categorical_pipeline = make_pipeline(
-            SimpleImputer(strategy="most_frequent"),
-            OneHotEncoder(handle_unknown="ignore")
-        )
-
         transformers.append(
-            ("cat", categorical_pipeline, categorical)
+            (
+                "cat",
+                make_pipeline(
+                    SimpleImputer(strategy="most_frequent"),
+                    OneHotEncoder(handle_unknown="ignore")
+                ),
+                categorical
+            )
         )
 
     preprocessing = ColumnTransformer(
@@ -224,10 +230,10 @@ def train_model(data):
     )
 
 
-st.sidebar.title("Dataset")
+st.sidebar.header("Dataset Upload")
 
 uploaded_file = st.sidebar.file_uploader(
-    "Upload your bike dataset",
+    "Upload your bike dataset (CSV)",
     type=["csv"]
 )
 
@@ -241,18 +247,21 @@ if uploaded_file is not None:
         dataset_name = uploaded_file.name
 
         st.sidebar.success(
-            f"Uploaded {len(data)} records"
+            f"{len(data):,} records uploaded successfully"
         )
 
     except Exception as e:
+
         st.sidebar.error(
             f"Dataset error: {e}"
         )
+
         st.stop()
 
 else:
 
     try:
+
         with st.spinner(
             "Loading sample dataset..."
         ):
@@ -261,17 +270,17 @@ else:
         dataset_name = "Sample Dataset"
 
         st.sidebar.info(
-            "Using the built-in sample dataset."
+            "Using built-in sample dataset."
         )
 
     except Exception as e:
+
         st.error(
             f"Unable to load sample dataset: {e}"
         )
 
         st.info(
-            "Please upload a valid CSV dataset "
-            "using the sidebar."
+            "Please upload a CSV dataset from the sidebar."
         )
 
         st.stop()
@@ -285,7 +294,7 @@ try:
         categorical,
         model,
         metrics
-    ) = train_model(data)
+    ) = fit_model(data)
 
 except Exception as e:
 
@@ -298,7 +307,7 @@ except Exception as e:
 
 st.divider()
 
-st.subheader("Dataset Information")
+st.subheader("Dataset Overview")
 
 c1, c2, c3 = st.columns(3)
 
@@ -308,7 +317,7 @@ c1.metric(
 )
 
 c2.metric(
-    "Input Features",
+    "Features Used",
     len(features)
 )
 
@@ -319,11 +328,10 @@ c3.metric(
 
 st.divider()
 
-st.subheader("Enter Bike Details")
+st.subheader("Bike Details")
 
 st.write(
-    "Change the values below to automatically "
-    "update the estimated bike price."
+    "Change the values below to automatically update the estimated bike price."
 )
 
 input_values = {}
@@ -349,34 +357,70 @@ for index, col in enumerate(features):
                 errors="coerce"
             ).dropna()
 
-            default = (
-                float(series.median())
-                if not series.empty else 0.0
-            )
+            if col == "model_year":
 
-            minimum = (
-                float(series.min())
-                if not series.empty else 0.0
-            )
+                default = (
+                    int(round(series.median()))
+                    if not series.empty else 2020
+                )
 
-            maximum = (
-                float(series.max())
-                if not series.empty else max(default * 2, 1.0)
-            )
+                minimum = (
+                    int(np.floor(series.min()))
+                    if not series.empty else 1980
+                )
 
-            if minimum == maximum:
-                maximum = minimum + 1.0
+                maximum = (
+                    int(np.ceil(series.max()))
+                    if not series.empty else 2026
+                )
 
-            input_values[col] = st.number_input(
-                label,
-                min_value=minimum,
-                max_value=maximum,
-                value=min(
-                    max(default, minimum),
-                    maximum
-                ),
-                key=f"input_{col}"
-            )
+                if minimum == maximum:
+                    maximum = minimum + 1
+
+                input_values[col] = st.number_input(
+                    label,
+                    min_value=minimum,
+                    max_value=maximum,
+                    value=min(
+                        max(default, minimum),
+                        maximum
+                    ),
+                    step=1,
+                    format="%d",
+                    key=f"input_{col}"
+                )
+
+            else:
+
+                default = (
+                    float(series.median())
+                    if not series.empty else 0.0
+                )
+
+                minimum = (
+                    float(series.min())
+                    if not series.empty else 0.0
+                )
+
+                maximum = (
+                    float(series.max())
+                    if not series.empty
+                    else max(default * 2, 1.0)
+                )
+
+                if minimum == maximum:
+                    maximum = minimum + 1.0
+
+                input_values[col] = st.number_input(
+                    label,
+                    min_value=minimum,
+                    max_value=maximum,
+                    value=min(
+                        max(default, minimum),
+                        maximum
+                    ),
+                    key=f"input_{col}"
+                )
 
         else:
 
@@ -426,39 +470,41 @@ st.success(
 )
 
 st.caption(
-    "This is an estimated price based on historical "
-    "data and may not represent the current market price."
+    "This estimate is based on historical listings "
+    "and may not represent the current market price."
 )
 
 st.divider()
 
-st.subheader("Model Evaluation")
+st.subheader("Model Performance Evaluation")
 
-col1, col2, col3 = st.columns(3)
+m1, m2, m3 = st.columns(3)
 
-col1.metric(
+m1.metric(
     "MAE",
     f"₹{metrics['MAE']:,.0f}"
 )
 
-col2.metric(
+m2.metric(
     "RMSE",
     f"₹{metrics['RMSE']:,.0f}"
 )
 
-col3.metric(
+m3.metric(
     "R² Score",
     f"{metrics['R2']:.3f}"
 )
 
 st.caption(
-    "Performance metrics are calculated using "
-    "a separate test dataset."
+    "Metrics are calculated on a separate test dataset "
+    "using an 80:20 train-test split."
 )
 
 st.divider()
 
-with st.expander("Preview Dataset"):
+st.subheader("Dataset Preview")
+
+with st.expander("View Dataset"):
 
     st.dataframe(
         data.head(100),
@@ -473,6 +519,8 @@ with st.expander("Preview Dataset"):
         file_name="used_bike_dataset.csv",
         mime="text/csv"
     )
+
+st.divider()
 
 st.caption(
     "Used Bike Price Analysis and Prediction | "
